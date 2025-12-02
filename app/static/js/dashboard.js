@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
         severity: null,
         timeline: null,
     };
+    let chartSignature = null;
 
     async function fetchJson(url, options = {}) {
         const response = await fetch(url, {
@@ -86,6 +87,14 @@ document.addEventListener('DOMContentLoaded', () => {
             : '';
         const resolveBtn = `<button class="btn btn-sm btn-outline-success" data-action="resolve" data-id="${incident.id}">Resolve</button>`;
         return `${ackBtn}${resolveBtn}`;
+    }
+
+    function metricsSignature(metrics) {
+        return JSON.stringify({
+            status: metrics.status_breakdown,
+            severity: metrics.severity_breakdown,
+            timeline: metrics.incidents_timeline,
+        });
     }
 
     function renderCharts(metrics) {
@@ -191,7 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await fetchJson('/api/dashboard');
         renderMetricCards(data.metrics);
         renderIncidentTable(data.incidents);
-        renderCharts(data.metrics);
+        const nextSignature = metricsSignature(data.metrics);
+        if (nextSignature !== chartSignature) {
+            renderCharts(data.metrics);
+            chartSignature = nextSignature;
+        }
         renderSensors(data.sensors);
     }
 

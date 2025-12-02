@@ -1,0 +1,18 @@
+[project]
+name = "modellen4"
+version = "0.1.0"
+description = "Smart City Incident Response demo platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+	"flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+	"pytest>=7.0",
+]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"

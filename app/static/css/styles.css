@@ -1,0 +1,20 @@
+body {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#metric-cards .card {
+    min-height: 120px;
+}
+
+.badge.bg-info {
+    font-size: 0.85rem;
+}
+
+.list-group-item {
+    cursor: pointer;
+}
+
+.list-group-item.active {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}

@@ -1,12 +1,16 @@
 """HTTP routes exposing the dashboard UI and JSON APIs."""
 from __future__ import annotations
 
+import secrets
 from functools import wraps
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
+import requests
 from flask import (
     Blueprint,
     abort,
+    current_app,
     jsonify,
     redirect,
     render_template,
@@ -50,18 +54,111 @@ def login_required(view):
 
 @auth_blueprint.route("/login", methods=["GET", "POST"])
 def login():
+    _remember_post_auth_target()
+    github_context = {
+        "github_client_id": current_app.config.get("GITHUB_CLIENT_ID"),
+        "github_redirect_uri": current_app.config.get("GITHUB_REDIRECT_URI"),
+        "github_state": _ensure_github_state(),
+    }
+    error_message = session.pop("auth_error", None)
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
         if verify_credentials(username, password):
             session["user"] = {"username": username}
-            target = request.args.get("next") or url_for("ui.dashboard")
+            target = _resolve_post_auth_target()
             return redirect(target)
-        error = "Invalid credentials"
-        return render_template("login.html", error=error), 401
+        error_message = "Invalid credentials"
+        return render_template("login.html", error=error_message, **github_context), 401
     if session.get("user"):
         return redirect(url_for("ui.dashboard"))
-    return render_template("login.html")
+    return render_template("login.html", error=error_message, **github_context)
+
+
+@auth_blueprint.route("/oauth/github/callback")
+def github_callback():
+    client_id = current_app.config.get("GITHUB_CLIENT_ID")
+    client_secret = current_app.config.get("GITHUB_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        session["auth_error"] = "GitHub login is not configured."
+        return redirect(url_for("auth.login"))
+
+    if request.args.get("error"):
+        message = request.args.get("error_description") or "GitHub authorization was denied."
+        session["auth_error"] = message
+        return redirect(url_for("auth.login"))
+
+    expected_state = session.get("github_oauth_state")
+    received_state = request.args.get("state")
+    if not expected_state or not received_state or received_state != expected_state:
+        session["auth_error"] = "Invalid or expired GitHub login request. Please try again."
+        session.pop("github_oauth_state", None)
+        return redirect(url_for("auth.login"))
+    session.pop("github_oauth_state", None)
+
+    code = request.args.get("code")
+    if not code:
+        session["auth_error"] = "Missing authorization code from GitHub."
+        return redirect(url_for("auth.login"))
+
+    token_payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "redirect_uri": current_app.config.get("GITHUB_REDIRECT_URI"),
+    }
+
+    try:
+        token_response = requests.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data=token_payload,
+            timeout=10,
+        )
+        token_response.raise_for_status()
+        token_data = token_response.json()
+    except (requests.RequestException, ValueError) as exc:
+        current_app.logger.exception("GitHub token exchange failed: %s", exc)
+        session["auth_error"] = "Could not authenticate with GitHub. Please try again."
+        return redirect(url_for("auth.login"))
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        current_app.logger.error("GitHub token response missing access_token: %s", token_data)
+        session["auth_error"] = "GitHub did not return an access token."
+        return redirect(url_for("auth.login"))
+
+    try:
+        user_response = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+            },
+            timeout=10,
+        )
+        user_response.raise_for_status()
+        user_data = user_response.json()
+    except (requests.RequestException, ValueError) as exc:
+        current_app.logger.exception("GitHub user lookup failed: %s", exc)
+        session["auth_error"] = "Unable to fetch GitHub profile information."
+        return redirect(url_for("auth.login"))
+
+    username = user_data.get("login")
+    if not username:
+        current_app.logger.error("GitHub profile response missing login: %s", user_data)
+        session["auth_error"] = "GitHub profile is missing a username."
+        return redirect(url_for("auth.login"))
+
+    session["user"] = {
+        "username": username,
+        "name": user_data.get("name") or username,
+        "avatar_url": user_data.get("avatar_url"),
+        "auth_provider": "github",
+    }
+
+    target = _resolve_post_auth_target()
+    return redirect(target)
 
 
 @auth_blueprint.route("/logout")
@@ -139,7 +236,6 @@ def dashboard_payload():
 @login_required
 def simulate_event():
     mutate_sensor_payloads()
-    print("Help me")
     sensors = get_sensors()
     candidates = [classify_sensor_event(sensor) | {"sensor": sensor} for sensor in sensors]
     candidates.sort(key=lambda item: item["score"], reverse=True)
@@ -177,3 +273,33 @@ def register_routes(app):
     app.register_blueprint(ui_blueprint)
     app.register_blueprint(api_blueprint)
     app.register_blueprint(auth_blueprint)
+
+
+def _ensure_github_state() -> str:
+    state = session.get("github_oauth_state")
+    if not state:
+        state = secrets.token_urlsafe(16)
+        session["github_oauth_state"] = state
+    return state
+
+
+def _resolve_post_auth_target() -> str:
+    candidates = [session.pop("post_auth_redirect", None), request.args.get("next")]
+    for candidate in candidates:
+        if candidate and _is_safe_redirect(candidate):
+            return candidate
+    return url_for("ui.dashboard")
+
+
+def _remember_post_auth_target() -> None:
+    next_url = request.args.get("next")
+    if next_url and _is_safe_redirect(next_url):
+        session["post_auth_redirect"] = next_url
+
+
+def _is_safe_redirect(target: str | None) -> bool:
+    if not target:
+        return False
+    host_url = urlparse(request.host_url)
+    redirect_url = urlparse(urljoin(request.host_url, target))
+    return redirect_url.scheme in {"http", "https"} and host_url.netloc == redirect_url.netloc

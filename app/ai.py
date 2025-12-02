@@ -13,34 +13,34 @@ def classify_sensor_event(sensor: dict[str, Any]) -> dict[str, Any]:
     status = sensor.get("status", "healthy")
 
     score = 0.2
-    rationale: list[str] = []
+    reasoning: list[str] = []
 
     if status == "alert":
         score += 0.4
-        rationale.append("Sensor flagged an alert state")
+        reasoning.append("Sensor flagged an alert state")
     elif status == "warning":
         score += 0.2
-        rationale.append("Sensor flagged a warning state")
+        reasoning.append("Sensor flagged a warning state")
 
     if sensor_type == "Traffic":
         vehicle_count = payload.get("vehicle_count", 0)
         avg_speed = payload.get("avg_speed_kmh", 30)
         congestion_ratio = vehicle_count / max(vehicle_count, avg_speed * 10, 1)
         score += min(0.4, congestion_ratio / 5)
-        rationale.append(f"Congestion ratio at {congestion_ratio:.2f}")
+        reasoning.append(f"Congestion ratio at {congestion_ratio:.2f}")
     elif sensor_type == "Public Safety":
         anomaly_score = payload.get("anomaly_score", 0)
         score += anomaly_score * 0.6
-        rationale.append(f"Anomaly score of {anomaly_score:.2f}")
+        reasoning.append(f"Anomaly score of {anomaly_score:.2f}")
     elif sensor_type == "Utilities":
         chlorine = payload.get("chlorine_ppm", 1)
         ph = payload.get("ph", 7)
         if chlorine > 1.5 or chlorine < 0.6:
             score += 0.3
-            rationale.append("Chlorine level deviates from safe range")
+            reasoning.append("Chlorine level deviates from safe range")
         if ph < 6.8 or ph > 8.2:
             score += 0.2
-            rationale.append("pH outside nominal band")
+            reasoning.append("pH outside nominal band")
 
     bounded_score = max(0, min(score, 1))
     severity_index = min(int(bounded_score * (len(SEVERITIES) - 1)), len(SEVERITIES) - 1)
@@ -48,7 +48,7 @@ def classify_sensor_event(sensor: dict[str, Any]) -> dict[str, Any]:
         "score": round(bounded_score, 2),
         "suggested_severity": SEVERITIES[severity_index],
         "category": sensor_type if sensor_type in CATEGORIES else "Utilities",
-        "rationale": rationale,
+        "rationale": reasoning,
     }
 
 

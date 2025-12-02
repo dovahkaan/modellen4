@@ -36,4 +36,5 @@ pytest
 ### Configuration notes
 - Set `APP_SECRET` to change the Flask secret key.
 - Provide `APP_USERNAME` and `APP_PASSWORD` to customise the operator login.
+- For GitHub OAuth login, configure `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and optionally `GITHUB_REDIRECT_URI` (defaults to `http://127.0.0.1:5000/oauth/github/callback`).
 - The AI module (`app/ai.py`) is rule-based for demo purposes; replace it with an ML pipeline when ready.

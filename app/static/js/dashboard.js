@@ -264,4 +264,5 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshDashboard().catch((error) => console.error('Refresh failed', error));
         refreshSensors().catch((error) => console.error('Sensor refresh failed', error));
     }, 15000);
+
 });

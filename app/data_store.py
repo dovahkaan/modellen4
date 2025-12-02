@@ -20,9 +20,9 @@ CATEGORIES = (
 _rng = random.Random(42)
 _incident_id_sequence = itertools.count(1001)
 
+
 def _now() -> datetime:
     return datetime.now(UTC)
-
 
 _incidents: list[dict[str, Any]] = [
     {
